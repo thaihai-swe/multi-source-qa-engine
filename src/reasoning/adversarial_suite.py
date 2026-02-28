@@ -97,7 +97,7 @@ class AdversarialTestSuite:
             config = get_config()
             confidence_threshold = config.reasoning.confidence_threshold if hasattr(config, 'reasoning') else 0.6
 
-            response, metrics = rag_system.process_query(test_case.query, enable_evaluation=False)
+            response = rag_system.process_query(test_case.query)
 
             if response and response.answer:
                 test_case.result = response.answer[:200]

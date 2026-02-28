@@ -246,17 +246,35 @@ class HyDEGenerator:
             return query
 
         try:
+            from openai import OpenAI
+            from src.config import get_config
+
+            config = get_config()
+            client = OpenAI(
+                base_url=config.llm.api_base_url,
+                api_key=config.llm.api_key
+            )
+
             # Create prompt for hypothetical document generation
-            prompt = f"""Generate a brief, factual paragraph that would answer this question:
+            prompt = f"""Generate a brief, factual paragraph (2-3 sentences) that would answer this question as if it were from a knowledge base or encyclopedia:
 
 Question: {query}
 
-Answer (2-3 sentences, factual style):"""
+Write a direct, informative answer:"""
 
-            # Generate using LLM (simplified - actual implementation would use the generator)
-            # For now, just return the query as fallback
-            logger.info("HyDE generation not yet fully implemented")
-            return query
+            response = client.chat.completions.create(
+                model=config.llm.model_name,
+                messages=[
+                    {"role": "system", "content": "You are a knowledge base. Generate factual, encyclopedic content."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=150
+            )
+
+            hypothetical_doc = response.choices[0].message.content.strip()
+            logger.info(f"✅ Generated HyDE document ({len(hypothetical_doc)} chars)")
+            return hypothetical_doc
 
         except Exception as e:
             logger.error(f"❌ HyDE generation failed: {e}")

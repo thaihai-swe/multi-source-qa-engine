@@ -11,7 +11,6 @@ from src.models import RetrievedDocument, RAGResponse, RAGASMetrics
 from src.retrieval.hybrid_search import HybridSearchEngine
 from src.retrieval.chunker import AdaptiveChunker
 from src.retrieval.loader import MultiSourceDataLoader
-from src.retrieval.cache import EmbeddingCache
 from src.retrieval.domain_guard import DomainGuard
 from src.retrieval.passage_highlighter import PassageHighlighter
 from src.retrieval.reranker import DocumentReranker, RerankerConfig
@@ -21,6 +20,7 @@ from src.evaluation.hallucination_detector import HallucinationDetector
 from src.reasoning import QueryExpander, MultiHopReasoner
 from src.reasoning.self_query_decomposer import SelfQueryDecomposer
 from src.persistence import JSONStorage
+from src.safety import InputGuardrail, OutputGuardrail
 from src.utils import get_logger
 
 logger = get_logger()
@@ -39,7 +39,6 @@ class RAGSystem:
         )
         self.chunker = AdaptiveChunker()
         self.loader = MultiSourceDataLoader()
-        self.embedding_cache = EmbeddingCache(max_size=self.config.search.embedding_cache_size)
         self.generator = LLMAnswerGenerator()
         self.evaluator = RAGASEvaluator()
         self.fact_checker = FactChecker()
@@ -52,6 +51,11 @@ class RAGSystem:
         )
         self.hallucination_detector = HallucinationDetector()
         self.self_query_decomposer = SelfQueryDecomposer()
+
+        # Initialize guardrails (new safety feature)
+        self.input_guardrail = InputGuardrail()
+        self.output_guardrail = OutputGuardrail()
+        self.last_guardrail_results = None
 
         # Initialize new features: passage highlighting and reranking
         self.passage_highlighter = PassageHighlighter(
@@ -79,6 +83,7 @@ class RAGSystem:
         # State
         self.conversation_history = []
         self.current_collection = None
+        self.current_collection_name = None  # Track collection name directly
         self.collections = {}
         self.loaded_sources = {}
         self.last_fact_check_results = []
@@ -185,6 +190,7 @@ class RAGSystem:
 
             self.collections[collection_name] = collection
             self.current_collection = collection
+            self.current_collection_name = collection_name  # Store name for easy lookup
             self.loaded_sources[source] = source_type
 
             print(f"✅ Successfully loaded {len(chunks)} chunks from {source}")
@@ -204,7 +210,26 @@ class RAGSystem:
         start_time = datetime.now()
 
         try:
-            # 0. Domain check (if enabled)
+            # 0a. Input guardrails (if enabled)
+            if self.config.evaluation.enable_guardrails:
+                is_valid, results = self.input_guardrail.validate(query)
+                self.last_guardrail_results = results
+                if not is_valid:
+                    # Block the query
+                    high_risk = [r for r in results if r.risk_level == "HIGH"]
+                    if high_risk:
+                        warning_msg = f"⚠️ Input blocked: {high_risk[0].message}"
+                        logger.warning(warning_msg)
+                        return RAGResponse(
+                            answer=f"❌ Your query was blocked for safety reasons: {high_risk[0].message}",
+                            sources=[],
+                            confidence_score=0.0,
+                            source_types=[],
+                            conversation_context=None,
+                            execution_time_ms=(datetime.now() - start_time).total_seconds() * 1000,
+                        )
+
+            # 0b. Domain check (if enabled)
             domain_check_result = None
             if self.config.search.enable_domain_guard:
                 domain_check_result = self.domain_guard.check_domain_relevance(query)
@@ -225,8 +250,21 @@ class RAGSystem:
             )
 
             if not docs:
+                # Check if it's because no data is loaded
+                if not self.current_collection:
+                    return RAGResponse(
+                        answer="❌ No documents loaded. Please use 'load <source>' command to load data first.\n\nExamples:\n  load https://en.wikipedia.org/wiki/Machine_learning\n  load document.pdf\n  load https://example.com",
+                        sources=[],
+                        confidence_score=0.0,
+                        source_types=[],
+                        conversation_context=None,
+                        execution_time_ms=(datetime.now() - start_time).total_seconds() * 1000,
+                        domain_check=domain_check_result,
+                        self_query_decomposition=decomposition,
+                    )
+
                 return RAGResponse(
-                    answer="No relevant documents found.",
+                    answer="No relevant documents found for your query. Try rephrasing or loading more data.",
                     sources=[],
                     confidence_score=0.0,
                     source_types=[],
@@ -277,7 +315,17 @@ class RAGSystem:
                 self.last_highlighted_passages = highlighted_passages
                 logger.info(f"✅ Extracted {len(highlighted_passages)} highlighted passages")
 
-            # 7. Store in history
+            # 7. Output guardrails (if enabled)
+            if self.config.evaluation.enable_guardrails:
+                is_valid, safe_answer, output_results = self.output_guardrail.validate(
+                    answer,
+                    auto_redact=self.config.evaluation.auto_redact_pii
+                )
+                if not is_valid or safe_answer != answer:
+                    logger.info(f"⚠️ Output guardrail: PII detected and {'redacted' if self.config.evaluation.auto_redact_pii else 'flagged'}")
+                    answer = safe_answer  # Use redacted version
+
+            # 8. Store in history
             self.conversation_history.append({
                 "query": query,
                 "answer": answer,
@@ -367,19 +415,15 @@ class RAGSystem:
     def _retrieve_documents(self, query: str) -> List[RetrievedDocument]:
         """Retrieve relevant documents using hybrid search"""
         if not self.current_collection:
-            logger.warning("⚠️ No collection loaded")
+            logger.warning("⚠️ No collection loaded. Use 'load' command first.")
+            return []
+
+        if not self.current_collection_name:
+            logger.warning("⚠️ Collection name not tracked")
             return []
 
         try:
-            collection_name = None
-            for name, col in self.collections.items():
-                if col == self.current_collection:
-                    collection_name = name
-                    break
-
-            if not collection_name:
-                logger.warning("⚠️ Could not find collection name")
-                return []
+            collection_name = self.current_collection_name
 
             # 1. Semantic search via ChromaDB
             semantic_results = self.current_collection.query(
@@ -512,15 +556,6 @@ class RAGSystem:
         """Save conversation history"""
         self.storage.save(self.conversation_history, filename)
         logger.info(f"💾 Conversation saved to {filename}")
-
-    def get_cache_stats(self) -> dict:
-        """Get cache statistics"""
-        stats = self.embedding_cache.get_stats()
-        return {
-            "cache_size": stats.get('size', 0),
-            "cache_hit_rate": stats.get('hit_rate', '0%'),
-            "total_queries": stats.get('total_lookups', 0)
-        }
 
 
 __all__ = ["RAGSystem"]

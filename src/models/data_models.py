@@ -114,8 +114,9 @@ class FactCheckResult:
     """Result of fact-checking a claim."""
     fact: str
     is_supported: bool
+    supporting_evidence: str
     confidence: float
-    evidence: Optional[str] = None
+    timestamp: str
 
     def to_dict(self):
         return asdict(self)

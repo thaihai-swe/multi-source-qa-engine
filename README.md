@@ -53,9 +53,11 @@ OPEN_AI_MODEL=meta-llama-3.1-8b-instruct
 
 **First session:**
 ```
-> load wikipedia "Machine Learning"
+> load https://en.wikipedia.org/wiki/Machine_learning
 > query What is supervised learning?
-> multihop How did neural networks evolve into deep learning?
+> agent Compare supervised and unsupervised learning
+> async What is AI? | What is ML? | What is DL?
+> observability
 ```
 
 ---
@@ -83,10 +85,18 @@ OPEN_AI_MODEL=meta-llama-3.1-8b-instruct
 - Hallucination detection — grounding analysis, risk scoring (LOW/MEDIUM/HIGH), auto-mitigation
 - Domain guard — detects out-of-domain queries against loaded source profile
 - Self-query decomposition — splits multi-aspect queries into focused sub-queries
+- **Guardrails & Safety Layer** — prompt injection detection, PII detection/redaction, toxicity filtering, rate limiting
 
 **Retrieval optimization (Phase 5)**
 - Document reranking — two-stage retrieval: bi-encoder → cross-encoder reranking + MMR diversity
 - Passage highlighting — sentence-level extraction with relevance scoring for transparency
+- **HyDE (Hypothetical Document Embeddings)** — generates hypothetical answers to improve retrieval quality
+
+**Autonomous & Performance (Phase 6)**
+- **Agentic RAG** — ReAct pattern with 10 available actions, autonomous strategy selection
+- **Async Pipeline** — parallel query processing, batch operations with 2-3x speedup
+- **Observability Dashboard** — comprehensive metrics tracking, query logging, HTML reports
+- **Experimentation Framework** — automated chunk size and top-k optimization with A/B testing
 
 ---
 
@@ -130,19 +140,36 @@ When you ask a question, the system follows this pipeline:
    - Cache embeddings for faster repeat queries
 
 ### Example Flow
-
-```bash
-> load wikipedia "Machine Learning"
+https://en.wikipedia.org/wiki/Machine_learning
   → Fetches article → Chunks into 500-token pieces → Embeds & indexes → Ready
 
 > query What is supervised learning?
-  → Searches ChromaDB + BM25 → Finds 3 relevant chunks about supervised learning
-  → Builds prompt with chunks → Sends to LLM → Gets grounded answer
+  → Input validation (if guardrails enabled) → Searches ChromaDB + BM25
+  → Finds 3 relevant chunks → Builds prompt with chunks → Sends to LLM
+  → Gets grounded answer → Output validation (PII redaction if enabled)
   → Evaluates with RAGAS → Returns answer with sources → Saves to history
 
-> passages
-  → Shows the exact sentences from documents that were most relevant
-```
+> agent Compare supervised and unsupervised learning
+  → Agent thinks → Chooses multi-hop strategy → Decomposes query into steps
+  → Retrieves for each step → Synthesizes answer → Returns with reasoning trace
+
+> async What is AI? | What is ML? | What is DL?
+  → Processes 3 queries in parallel → Returns all results in ~time of one query
+
+> observability
+- **Agentic RAG**: Autonomous agent chooses optimal strategy from 10 available actions using ReAct pattern
+- **HyDE**: Generates hypothetical answers to improve retrieval precision
+
+**For quality assurance:**
+- **Self-Query Decomposition**: Split multi-aspect questions (e.g., "What is X, how does Y work, where is Z used?")
+- **Domain Guard**: Warn if question is outside loaded document scope
+- **Guardrails**: Prompt injection detection, PII detection/redaction, toxicity filtering, rate limiting
+- **Hallucination Detection**: Grounding analysis with auto-mitigation
+
+**For performance and optimization:**
+- **Async Pipeline**: Parallel query processing with 2-3x speedup for batch operations
+- **Observability Dashboard**: Real-time metrics tracking, query logs, HTML reports
+- **Experimentation Framework**: Automated optimization of chunk size and top-k values with A/B testing
 
 ### Advanced Features
 
@@ -173,7 +200,7 @@ When you ask a question, the system follows this pipeline:
 | `save [filename]`  | Save conversation to JSON                      |
 | `clear`            | Clear conversation history                     |
 
-**Load examples:**
+**Load https://en.wikipedia.org/wiki/Cristiano_Ronaldo
 ```
 > load wikipedia "Cristiano Ronaldo"
 > load https://example.com/article
@@ -183,27 +210,32 @@ When you ask a question, the system follows this pipeline:
 
 ### Advanced
 
-| Command            | Description                        |
-| ------------------ | ---------------------------------- |
-| `expand <query>`   | Query with 4-variation expansion   |
-| `multihop <query>` | 3-step decomposition and synthesis |
-
-### Toggles and inspection
-
-| Command                | Effect                                         |
-| ---------------------- | ---------------------------------------------- |
-| `streaming`            | Toggle streaming output (default: off)         |
-| `fact-check`           | Toggle fact verification (default: off)        |
-| `self-query`           | Toggle self-query decomposition (default: off) |
-| `domain`               | Toggle domain guard (default: off)             |
-| `hallucination`        | Toggle hallucination detection (default: off)  |
-| `rerank`               | Toggle document reranking (default: off)       |
-| `highlight`            | Toggle passage highlighting (default: off)     |
-| `cache`                | Show embedding cache statistics                |
-| `facts`                | Show last fact-check results                   |
-| `hallucination-report` | Show last hallucination analysis report        |
-| `domain-stats`         | Show domain profile and similarity threshold   |
-| `passages`             | Show highlighted passages from last query      |
+| Command                      | Description                                           |
+| ---------------------------- | ----------------------------------------------------- |
+| `expand <query>`             | Query with 4-variation expansion                      |
+| `multihop <query>`           | 3-step decomposition and synthesis                    |
+| `agent <query>`              | Agentic RAG with autonomous strategy selection        |
+| `async <q1> \| <q2> \| <q3>` | Batch queries in parallel (2-3x faster)               |
+| `observability`              | Show performance metrics and export HTML report       |
+| `experiments`                | Run optimization experiments (chunk s                 |
+| ----------------------       | ----------------------------------------------------- |
+| `streaming`                  | Toggle streaming output (default: off)                |
+| `fact-check`                 | Toggle fact verification (default: off)               |
+| `guardrail`                  | Toggle guardrails & safety (default: off) — **NEW!**  |
+| `self-query`                 | Toggle self-query decomposition (default: off)        |
+| `domain`                     | Toggle domain guard (default: off)                    |
+| `hallucination`              | Toggle hallucination detection (default: off)         |
+| `rerank`                     | Toggle document reranking (default: off)              |
+| `highlight`                  | Toggle passage highlighting (default: off)            |
+| `cache`                      | Show embedding cache statistics                       |
+| `facts`                      | Show last fact-check results                          |
+| `hallucination-report`       | Show last hallucination analysis report               |
+| `domain-stats`               | Show domain profile and similarity threshold          |
+| `passages`                   | Show highlighted passages from last query             |
+| `facts`                      | Show last fact-check results                          |
+| `hallucination-report`       | Show last hallucination analysis report               |
+| `domain-stats`               | Show domain profile and similarity threshold          |
+| `passages`                   | Show highlighted passages from last query             |
 
 ### General
 
@@ -218,13 +250,38 @@ When you ask a question, the system follows this pipeline:
 
 All settings load from `.env` at startup.
 
-| Variable               | Default                      | Description  |
-| ---------------------- | ---------------------------- | ------------ |
-| `OPEN_AI_API_KEY`      | `lm-studio`                  | API key      |
-| `OPEN_AI_API_BASE_URL` | `http://127.0.0.1:1234/v1`   | LLM base URL |
-| `OPEN_AI_MODEL`        | `meta-llama-3.1-8b-instruct` | Model name   |
+| Variable            | Default     | Description                         |
+| ------------------- | ----------- | ----------------------------------- |
+| `OPEN_AI_API_KEY`   | `lm-studio` | API key                             |  |
+| `enable_guardrails` | False       | Enable input/output safety checks   |
+| `auto_redact_pii`   | True        | Automatically redact detected PII   |
+| `mmr_lambda`        | 0.7         | MMR balance: relevance vs diversity |
 
-Key runtime defaults (in `src/config.py`):
+---
+
+## Recent Updates (2026-02-28)
+
+### New Features
+- ✨ **Agentic RAG**: Autonomous agent with ReAct pattern and 10 available actions
+- ✨ **Async Pipeline**: Parallel query processing with batch operations
+- ✨ **Guardrails**: Comprehensive safety layer (prompt injection, PII, toxicity, rate limiting)
+- ✨ **Observability**: Performance tracking, metrics aggregation, HTML reports
+- ✨ **Experiments**: Automated chunk size and top-k optimization
+- ✨ **HyDE**: Hypothetical document generation for improved retrieval
+
+### Bug Fixes
+- 🐛 Fixed Wikipedia 403 Forbidden errors (proper User-Agent headers)
+- 🐛 Fixed collection name tracking (queries now work immediately after loading)
+- 🐛 Fixed guardrails integration (now properly blocks malicious inputs)
+- 🐛 Fixed PII detection (auto-redaction now works)
+- 🐛 Fixed agent multi-hop reasoning (resolved subquery attribute error)
+
+### New CLI Commands
+- `guardrail` - Toggle safety features
+- `agent <query>` - Use agentic RAG
+- `async <q1> | <q2>` - Batch async queries
+- `observability` - View metrics and export reports
+- `experiments` - Run optimization experimentsKey runtime defaults (in `src/config.py`):
 
 | Setting                       | Default | Description                         |
 | ----------------------------- | ------- | ----------------------------------- |

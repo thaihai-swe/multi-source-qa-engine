@@ -32,7 +32,8 @@ The architecture below shows how these components are organized.
 +------------------------------------------------------------------+
 |                         CLI Layer                                |
 |    src/cli/__init__.py  (InteractiveRAG)                        |
-|    load / query / expand / multihop / toggles / inspection       |
+|    load / query / expand / multihop / agent / async / toggles    |
+|    guardrail / observability / experiments / inspection          |
 +------------------------------------------------------------------+
                               |
                               v
@@ -40,28 +41,29 @@ The architecture below shows how these components are organized.
 |                     Orchestration Layer                          |
 |    src/core/rag_system.py  (RAGSystem)                          |
 |    Coordinates all components; owns configuration and state      |
+|    Integrates guardrails for input/output safety validation      |
 +------------------------------------------------------------------+
-         |          |            |             |           |
-         v          v            v             v           v
-+----------+  +----------+  +--------+  +-----------+  +--------+
-| Retrieval|  | Reasoning|  | Genera-|  | Evaluation|  | Persis-|
-|          |  |          |  | tion   |  |           |  | tence  |
-| Hybrid   |  | Query    |  |        |  | RAGAS     |  |        |
-| Search   |  | Expander |  | LLM    |  | Evaluator |  | JSON   |
-|          |  |          |  | Answer |  |           |  | Storage|
-| Loader   |  | MultiHop |  | Genera-|  | Fact      |  |        |
-|          |  | Reasoner |  | tor    |  | Checker   |  +--------+
-| Chunker  |  |          |  |        |  |           |
-|          |  | Self     |  +--------+  | Hallucin. |
-| LRU      |  | Query    |             | Detector  |
-| Cache    |  | Decomp.  |             +-----------+
-|          |  |          |
-| Domain   |  | Adversar.|
-| Guard    |  | Suite    |
-|          |  |          |
-| Reranker |  |          |
-|          |  |          |
-| Passage  |  |          |
+         |          |            |             |           |           |
+         v          v            v             v           v           v
++----------+  +----------+  +--------+  +-----------+  +--------+  +----------+
+| Retrieval|  | Reasoning|  | Genera-|  | Evaluation|  | Persis-|  | Safety & |
+|          |  |          |  | tion   |  |           |  | tence  |  | Observ.  |
+| Hybrid   |  | Query    |  |        |  | RAGAS     |  |        |  | Guard-   |
+| Search   |  | Expander |  | LLM    |  | Evaluator |  | JSON   |  | rails    |
+|          |  |          |  | Answer |  |           |  | Storage|  | (Input   |
+| Loader   |  | MultiHop |  | Genera-|  | Fact      |  |        |  | /Output) |
+|          |  | Reasoner |  | tor    |  | Checker   |  +--------+  |          |
+| Chunker  |  |          |  |        |  |           |             | Observ.  |
+|          |  | Self     |  | HyDE   |  | Hallucin. |             | Dashboard|
+| LRU      |  | Query    |  |        |  | Detector  |             |          |
+| Cache    |  | Decomp.  |  +--------+  +-----------+             | Async    |
+|          |  |          |                                         | Pipeline |
+| Domain   |  | Adversar.|                                         |          |
+| Guard    |  | Suite    |                                         | Experi-  |
+|          |  |          |                                         | ments    |
+| Reranker |  | Agentic  |                                         |          |
+|          |  | RAG      |                                         +----------+
+| Passage  |  | (ReAct)  |
 | Highlight|  |          |
 +----------+  +----------+
          |
@@ -124,6 +126,81 @@ The architecture below shows how these components are organized.
 | RAGAS evaluation        | 500 ms – 1 s    | 3 LLM-judged sub-metrics        |
 | Fact-checking           | 300–500 ms      | Per-claim context matching      |
 | Hallucination detection | 200–400 ms      | Claim grounding similarity      |
+| Guardrails validation   | 50–150 ms       | Pattern matching + heuristics   |
+| Async batch (3 queries) | 2–6 s           | 2-3x faster than sequential     |
+| Agent reasoning         | 3–10 s          | Depends on chosen strategy      |
 | Full query (warm cache) | 2–5 s           | Generation dominates            |
 | Full query (cold)       | 4–8 s           | Includes embedding computation  |
+
+---
+
+## New Components (Phase 6)
+
+### Agentic RAG (src/reasoning/agent.py)
+**Purpose:** Autonomous RAG agent with ReAct (Reasoning + Acting) pattern
+**Key features:**
+- 10 available actions: standard retrieval, query expansion, multi-hop, self-query, adversarial testing, fact-checking, HyDE, reranking, highlighting, domain check
+- Autonomous strategy selection based on query characteristics
+- Reasoning trace output showing thought process and chosen actions
+
+**Architecture:**
+```python
+class AgenticRAG:
+    def query(query) -> AgentResult:
+        1. Think: Analyze query → choose strategy
+        2. Act: Execute chosen action(s)
+        3. Synthesize: Combine results → generate answer
+        4. Return: Answer + reasoning trace + confidence
+```
+
+### Guardrails (src/evaluation/guardrails.py)
+**Purpose:** Safety layer for input/output validation
+**Components:**
+- `InputGuardrail`: Blocks malicious queries (prompt injection, SQL injection, XSS, jailbreak attempts)
+- `OutputGuardrail`: Detects and redacts PII (emails, phone numbers, SSN, credit cards)
+- Rate limiting: Prevents abuse with time-based throttling
+- Risk scoring: LOW/MEDIUM/HIGH classification with automatic blocking at HIGH
+
+**Integration:** Validates input at start of `RAGSystem.process_query()`, validates output before storing answer
+
+### Async Pipeline (src/core/async_rag.py)
+**Purpose:** Parallel query processing for batch operations
+**Features:**
+- Concurrent execution of independent queries with asyncio
+- 2-3x speedup for batch operations
+- Progress tracking and error handling per query
+- CLI integration: `async What is AI? | What is ML? | What is DL?`
+
+**Performance:**
+- Sequential: 3 queries × 4s = 12s total
+- Parallel: max(4s, 4s, 4s) ≈ 5s total (2.4x speedup)
+
+### Observability Dashboard (src/evaluation/observability.py)
+**Purpose:** Performance monitoring and metrics aggregation
+**Features:**
+- Query execution time tracking
+- Retrieved document count statistics
+- RAGAS metrics aggregation (mean, median, p95)
+- HTML report export with charts and visualizations
+- Real-time metrics display in CLI
+
+### Experimentation Framework (src/evaluation/experiments.py)
+**Purpose:** Automated hyperparameter optimization
+**Experiments:**
+1. **Chunk Size Optimization**: Test 200/400/600/800/1000 tokens → find optimal size
+2. **Top-K Optimization**: Test k=1/3/5/7/10 → measure precision vs recall tradeoff
+3. **A/B Testing**: Compare configurations side-by-side with statistical significance
+
+**CLI Integration:** Interactive prompts for test queries, automatic metric comparison
+
+### HyDE (src/generation/hyde.py)
+**Purpose:** Hypothetical Document Embeddings for improved retrieval
+**Process:**
+1. Generate hypothetical answer to user's question
+2. Embed hypothetical answer
+3. Use hypothetical embedding for retrieval (finds documents semantically similar to expected answers)
+4. Retrieve actual documents
+5. Generate final answer from actual documents
+
+**Benefit:** Bridges semantic gap between question and answer spaces (15-25% retrieval improvement)
 | Full query (reranking)  | 4–6 s           | +150-250ms for cross-encoder    |

@@ -47,6 +47,9 @@ class EvaluationConfig:
     # Hallucination Detection
     enable_hallucination_detection: bool = False
     auto_mitigate_hallucinations: bool = True
+    # Guardrails
+    enable_guardrails: bool = False
+    auto_redact_pii: bool = True
 
 
 @dataclass

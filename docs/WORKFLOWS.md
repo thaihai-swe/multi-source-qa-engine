@@ -94,6 +94,9 @@ Triggered by: `query <question>` (or any unrecognised input)
 User input
     |
     v
+[Guardrails]             -- if enabled (blocks HIGH risk)
+    |
+    v
 [Self-Query Decomposer]  -- if enabled
     |
     v
@@ -395,7 +398,255 @@ User: multihop "How did Einstein's work lead to nuclear energy?"
 
 ---
 
-## 5. Self-Query Decomposition (standalone flow)
+## 5. Agentic RAG (Autonomous Query Processing)
+
+Triggered by: `agent <query>`
+
+```
+User: agent "Compare supervised and unsupervised learning"
+             |
+             v
+     AgenticRAG.query(query)
+             |
+             v
+     THINK Phase:
+       Analyze query characteristics:
+         - Is it comparative? --> multi-hop
+         - Is it complex? --> query expansion
+         - Is it specific? --> standard retrieval
+         - Does it need fact verification? --> fact-check
+             |
+             v
+     ACT Phase:
+       Execute chosen strategy from 10 available actions:
+         1. STANDARD_RETRIEVAL
+         2. QUERY_EXPANSION
+         3. MULTI_HOP_REASONING
+         4. SELF_QUERY_DECOMPOSITION
+         5. ADVERSARIAL_TESTING
+         6. FACT_CHECKING
+         7. HYDE_RETRIEVAL
+         8. RERANKING
+         9. PASSAGE_HIGHLIGHTING
+         10. DOMAIN_CHECK
+             |
+             v
+     SYNTHESIZE Phase:
+       Combine action results
+       Generate final answer with context
+       Calculate confidence score
+             |
+             v
+     Return:
+       - Answer text
+       - Reasoning trace (thought process)
+       - Retrieved documents
+       - Confidence score
+```
+
+**Key features:**
+- Autonomous strategy selection (no manual command required)
+- Transparent reasoning trace shows agent's thought process
+- Confidence scoring based on action success
+- Fallback to standard retrieval if specialized actions fail
+
+---
+
+## 6. Async Pipeline (Batch Query Processing)
+
+Triggered by: `async <query1> | <query2> | <query3>`
+
+```
+User: async "What is AI? | What is ML? | What is DL?"
+             |
+             v
+     Split queries by " | " delimiter
+       ["What is AI?", "What is ML?", "What is DL?"]
+             |
+             v
+     AsyncRAG.batch_queries_async(queries)
+             |
+             v
+     Create asyncio tasks for each query:
+       Task 1: process_query_async("What is AI?")
+       Task 2: process_query_async("What is ML?")
+       Task 3: process_query_async("What is DL?")
+             |
+             v
+     Execute concurrently with asyncio.gather()
+       ├─ Task 1: Search → Generate → Evaluate
+       ├─ Task 2: Search → Generate → Evaluate
+       └─ Task 3: Search → Generate → Evaluate
+             |
+             v
+     Wait for all tasks to complete
+     Return list of (query, answer, metrics) tuples
+             |
+             v
+     Display all results with performance comparison
+```
+
+**Performance gain:**
+- Sequential: 3 × 4s = 12s
+- Parallel: max(4s, 4s, 4s) ≈ 5s (2.4x speedup)
+
+---
+
+## 7. Guardrails Workflow
+
+Integrated into every query when enabled (`guardrail` toggle)
+
+```
+User query
+    |
+    v
+InputGuardrail.validate(query)
+    |
+    ├─ Pattern matching:
+    │    - SQL injection keywords
+    │    - Prompt injection attempts
+    │    - XSS patterns
+    │    - Jailbreak attempts
+    │
+    ├─ Rate limiting check:
+    │    - Track timestamps per user/session
+    │    - Block if too many requests
+    │
+    └─> Risk scoring: LOW / MEDIUM / HIGH
+              |
+              ├─ HIGH risk? --> Block query, return error
+              └─ LOW/MEDIUM --> Continue to RAG pipeline
+                       |
+                       v
+             [Standard RAG processing]
+                       |
+                       v
+             Generated answer
+                       |
+                       v
+OutputGuardrail.validate(answer)
+    |
+    ├─ PII detection patterns:
+    │    - Email addresses
+    │    - Phone numbers (US/international)
+    │    - SSN, credit card numbers
+    │    - API keys, passwords
+    │
+    └─> If PII detected:
+         - auto_redact_pii=True → Replace with [REDACTED]
+         - auto_redact_pii=False → Flag in metadata
+              |
+              v
+        Sanitized answer returned to user
+```
+
+---
+
+## 8. Observability Dashboard
+
+Triggered by: `observability`
+
+```
+User: observability
+             |
+             v
+     ObservabilityDashboard.get_metrics()
+             |
+             v
+     Collect system metrics:
+       - Total queries processed
+       - Average query execution time
+       - Average documents retrieved per query
+       - RAGAS metrics aggregation:
+           * Mean context relevance
+           * Mean answer relevance
+           * Mean faithfulness
+           * P50/P95 latencies
+       - Cache hit rate
+       - Error rate and failure types
+             |
+             v
+     Display metrics in formatted tables:
+       ┌─────────────────────────────────┐
+       │  System Performance             │
+       ├─────────────────────────────────┤
+       │  Total queries: 42              │
+       │  Avg latency: 3.2s              │
+       │  Avg docs: 4.1                  │
+       │  Cache hit rate: 67%            │
+       └─────────────────────────────────┘
+             |
+             v
+     Export to HTML report:
+       - Interactive charts (Chart.js)
+       - Query log table with drill-down
+       - Metrics time series
+       - Save to observability_report.html
+```
+
+---
+
+## 9. Experimentation Framework
+
+Triggered by: `experiments`
+
+```
+User: experiments
+             |
+             v
+     Display experiment menu:
+       1. Chunk size optimization
+       2. Top-k optimization
+       3. A/B testing
+             |
+             v
+     User selects: 1 (Chunk size optimization)
+             |
+             v
+     ExperimentRunner.run_chunk_size_experiment()
+             |
+             v
+     Prompt user for test queries:
+       "Enter test questions (one per line, empty to finish):"
+       > What is machine learning?
+       > How does gradient descent work?
+       > [empty line]
+             |
+             v
+     For each chunk size in [200, 400, 600, 800, 1000]:
+       1. Re-chunk loaded documents with new size
+       2. Re-index in ChromaDB
+       3. Run all test queries
+       4. Collect metrics:
+          - Average RAGAS score
+          - Average latency
+          - Average context length
+             |
+             v
+     Compare results:
+       ┌──────────┬──────────┬──────────┬──────────┐
+       │ Chunk    │ RAGAS    │ Latency  │ Context  │
+       ├──────────┼──────────┼──────────┼──────────┤
+       │ 200      │ 0.72     │ 2.1s     │ 180 tok  │
+       │ 400      │ 0.81     │ 2.8s     │ 360 tok  │
+       │ 600      │ 0.85     │ 3.2s     │ 540 tok  │ ← Best
+       │ 800      │ 0.83     │ 3.9s     │ 720 tok  │
+       │ 1000     │ 0.79     │ 4.5s     │ 900 tok  │
+       └──────────┴──────────┴──────────┴──────────┘
+             |
+             v
+     Recommendation: "Optimal chunk size: 600 tokens"
+     Offer to apply new setting to config
+```
+
+**Available experiments:**
+1. **Chunk size**: 200/400/600/800/1000 tokens
+2. **Top-k**: 1/3/5/7/10 documents
+3. **A/B test**: Compare two complete configurations
+
+---
+
+## 10. Self-Query Decomposition (standalone flow)
 
 When `self-query` is toggled on, it wraps every `query` call:
 
@@ -424,7 +675,7 @@ Complex query: "What is ML, what are its types, and where is it used?"
 
 ---
 
-## 6. Evaluation Pipeline
+## 11. Evaluation Pipeline
 
 Both RAGAS and hallucination detection run after every generated answer (when enabled). They share the same inputs.
 
@@ -452,7 +703,7 @@ flowchart TD
 
 ---
 
-## 7. System State Lifecycle
+## 12. System State Lifecycle
 
 ```
 [INIT]
@@ -496,7 +747,7 @@ flowchart TD
 
 ---
 
-## 8. CLI Command Routing
+## 13. CLI Command Routing
 
 ```
 User input
@@ -510,6 +761,11 @@ cmd = input.lower().split()[0]
     +-- query             --> _handle_query() --> RAGSystem.process_query()
     +-- expand            --> _handle_expand() --> QueryExpander + process_query()
     +-- multihop          --> _handle_multihop() --> MultiHopReasoner
+    +-- agent             --> _handle_agent() --> AgenticRAG.query()
+    +-- async             --> _handle_async() --> AsyncRAG.batch_queries_async()
+    +-- guardrail         --> toggle enable_guardrails
+    +-- observability     --> _handle_observability() --> ObservabilityDashboard
+    +-- experiments       --> _handle_experiments() --> ExperimentRunner
     +-- sources           --> print loaded_sources
     +-- history           --> print conversation_history
     +-- metrics           --> print evaluation_results
@@ -524,7 +780,7 @@ cmd = input.lower().split()[0]
     +-- self-query        --> toggle config.reasoning.enable_self_query
     +-- domain            --> toggle config.search.enable_domain_guard
     +-- hallucination     --> toggle config.evaluation.enable_hallucination_detection
-    +-- [anything else]   --> treated as a query (prepend "query ")
+   14+-- [anything else]   --> treated as a query (prepend "query ")
 ```
 
 ---
@@ -554,7 +810,7 @@ Type:    in-memory dict, no eviction (session-scoped)
 Key:     source identifier (page title / URL / path)
 Value:   raw text string
 
-Note: discarded at program exit; not persisted to disk
+Note5 discarded at program exit; not persisted to disk
 ```
 
 ---

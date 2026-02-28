@@ -72,11 +72,19 @@ class MultiSourceDataLoader(DocumentLoader):
             if page_title.lower().startswith("wikipedia "):
                 page_title = page_title[10:]  # Remove "wikipedia "
 
+            # Extract from Wikipedia URL if provided
+            if "wikipedia.org/wiki/" in page_title:
+                page_title = page_title.split("/wiki/")[-1]
+                # URL decode
+                import urllib.parse
+                page_title = urllib.parse.unquote(page_title)
+
             from wikipediaapi import Wikipedia
-            USER_AGENT = "generative-ai-learning/1.0 (contact: your-email@example.com)"
+            USER_AGENT = "RAGBot/1.0 (Educational Project; Python/wikipediaapi)"
             wiki = Wikipedia(user_agent=USER_AGENT, language="en")
             page = wiki.page(page_title)
             if page.exists():
+                logger.info(f"✅ Loaded Wikipedia: {page_title}")
                 return page.text
             else:
                 logger.warning(f"Wikipedia page not found: {page_title}")
@@ -89,7 +97,11 @@ class MultiSourceDataLoader(DocumentLoader):
     def _load_url(url: str) -> str:
         """Load and scrape content from URL"""
         try:
-            response = requests.get(url, timeout=10)
+            # Add proper headers to avoid 403 errors
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            response = requests.get(url, headers=headers, timeout=10)
             response.raise_for_status()
             soup = BeautifulSoup(response.content, "html.parser")
             # Remove script and style elements
@@ -97,6 +109,7 @@ class MultiSourceDataLoader(DocumentLoader):
                 script.decompose()
             text = soup.get_text()
             lines = (line.strip() for line in text.splitlines())
+            logger.info(f"✅ Loaded URL: {url}")
             return "\n".join(line for line in lines if line)
         except Exception as e:
             logger.error(f"Error loading URL {url}: {e}")

@@ -36,6 +36,8 @@ class InteractiveRAG:
         print("\n🚀 ADVANCED COMMANDS:")
         print("  expand <query>                 - Query expansion (4 variations)")
         print("  multihop <query>               - Multi-hop reasoning")
+        print("  agent <query>                  - Use agentic RAG (autonomous strategy)")
+        print("  async <query1> | <query2> ...  - Batch async queries")
 
         print("\n⚡ SETTINGS & TOOLS:")
         print("  streaming                      - Toggle streaming responses")
@@ -45,10 +47,13 @@ class InteractiveRAG:
         print("  hallucination                  - Toggle hallucination detection & mitigation")
         print("  rerank                         - Toggle cross-encoder reranking & MMR diversity")
         print("  highlight                      - Toggle passage highlighting")
+        print("  guardrail                      - Toggle input/output guardrails & safety")
         print("  cache                          - Show cache statistics")
         print("  facts                          - Show fact-check results")
         print("  passages                       - Show highlighted passages from last query")
         print("  hallucination-report           - Show last hallucination report")
+        print("  observability                  - Show observability metrics & export report")
+        print("  experiments                    - Run optimization experiments")
         print("  domain-stats                   - Show domain guard profile")
 
         print("\n📚 OTHER:")
@@ -128,6 +133,22 @@ class InteractiveRAG:
             self._handle_multihop(user_input)
             return True
 
+        if cmd == 'agent':
+            self._handle_agent(user_input)
+            return True
+
+        if cmd == 'async':
+            self._handle_async(user_input)
+            return True
+
+        if cmd == 'observability':
+            self._handle_observability()
+            return True
+
+        if cmd == 'experiments':
+            self._handle_experiments()
+            return True
+
         # Settings
         if cmd == 'streaming':
             self.enable_streaming = not self.enable_streaming
@@ -181,6 +202,19 @@ class InteractiveRAG:
             )
             status = "✅ ENABLED" if self.rag.config.search.enable_passage_highlighting else "❌ DISABLED"
             print(f"📍 Passage highlighting: {status}")
+            return True
+
+        if cmd == 'guardrail':
+            self.rag.config.evaluation.enable_guardrails = (
+                not self.rag.config.evaluation.enable_guardrails
+            )
+            status = "✅ ENABLED" if self.rag.config.evaluation.enable_guardrails else "❌ DISABLED"
+            print(f"🛡️  Guardrails & Safety: {status}")
+            if self.rag.config.evaluation.enable_guardrails:
+                print("   - Prompt injection detection")
+                print("   - PII detection & redaction")
+                print("   - Toxicity filtering")
+                print("   - Rate limiting")
             return True
 
         if cmd == 'passages':
@@ -245,8 +279,35 @@ class InteractiveRAG:
             return
 
         try:
-            response = self.rag.process_query(query_text)
-            self._display_response(response)
+            if self.enable_streaming:
+                # Streaming mode: retrieve documents first, then stream answer
+                docs = self.rag._retrieve_documents(query_text)
+                if not docs:
+                    print("\n❌ No relevant documents found.\n")
+                    return
+
+                print("\n💬 Answer (streaming):")
+                print("-" * 80)
+                answer_chunks = []
+                for chunk in self.rag.generator.generate_streaming(query_text, docs):
+                    print(chunk, end="", flush=True)
+                    answer_chunks.append(chunk)
+                print("\n" + "-" * 80)
+
+                # Create a simplified response for display
+                from src.models import RAGResponse
+                response = RAGResponse(
+                    answer="".join(answer_chunks),
+                    sources=docs,
+                    confidence_score=0.5,
+                    source_types=list(set(doc.source_type for doc in docs)),
+                    conversation_context=None,
+                )
+                self._display_response(response)
+            else:
+                # Buffered mode: normal processing
+                response = self.rag.process_query(query_text)
+                self._display_response(response)
 
             # Store evaluation result
             if response.confidence_score:
@@ -326,19 +387,207 @@ class InteractiveRAG:
             print(f"❌ Error: {e}")
             logger.error(f"Multi-hop error: {e}")
 
+    def _handle_agent(self, command: str) -> None:
+        """Handle agentic RAG query"""
+        query_text = command.replace("agent ", "", 1).strip()
+        if not query_text:
+            print("❌ Usage: agent <query>")
+            print("   Example: agent Compare machine learning and deep learning")
+            return
+
+        try:
+            from src.reasoning import AgenticRAG
+
+            print("\n🤖 Initializing agentic RAG...")
+            agent = AgenticRAG(self.rag, max_steps=5)
+
+            print(f"💭 Processing: {query_text}")
+            response = agent.process_query(query_text)
+
+            print(f"\n🎯 Strategy Used: {response.strategy_used}")
+            print(f"🔢 Steps Taken: {response.total_steps}")
+            print(f"🎲 Confidence: {response.confidence:.2f}")
+
+            print(f"\n💡 REASONING TRACE:")
+            print("="*80)
+            for step in response.reasoning_steps:
+                print(f"\nStep {step.step_number}:")
+                print(f"  💭 Thought: {step.thought}")
+                print(f"  🎬 Action: {step.action.value}")
+                print(f"  📝 Input: {step.action_input}")
+                print(f"  👁️  Observation: {step.observation[:100]}...")
+
+            print(f"\n💡 FINAL ANSWER:")
+            print("="*80)
+            print(response.final_answer)
+            print("="*80)
+            print(f"📖 Sources: {len(response.sources)} documents used\n")
+
+        except Exception as e:
+            print(f"❌ Error: {e}")
+            logger.error(f"Agent error: {e}")
+
+    def _handle_async(self, command: str) -> None:
+        """Handle async batch queries"""
+        queries_text = command.replace("async ", "", 1).strip()
+        if not queries_text:
+            print("❌ Usage: async <query1> | <query2> | <query3>")
+            print("   Example: async What is AI? | What is ML? | What is DL?")
+            return
+
+        try:
+            import asyncio
+            from src.core.async_rag import batch_queries_async
+
+            # Split by pipe
+            queries = [q.strip() for q in queries_text.split('|') if q.strip()]
+
+            if len(queries) < 2:
+                print("⚠️  Async is best for multiple queries. Use '|' to separate them.")
+                print("   Processing single query normally...")
+                self._handle_query(f"query {queries[0]}")
+                return
+
+            print(f"\n⚡ Processing {len(queries)} queries in parallel...")
+            print("-"*80)
+
+            # Run async queries
+            responses = asyncio.run(batch_queries_async(self.rag, queries, max_concurrent=3))
+
+            print(f"\n✅ Completed {len(responses)} queries!")
+            print("="*80)
+
+            # Display results
+            for i, (query, response) in enumerate(zip(queries, responses), 1):
+                print(f"\n[{i}] {query}")
+                print(f"    Answer: {response.answer[:100]}...")
+                print(f"    Sources: {len(response.sources)} | Time: {response.execution_time_ms:.0f}ms")
+
+            print("="*80 + "\n")
+
+        except Exception as e:
+            print(f"❌ Error: {e}")
+            logger.error(f"Async error: {e}")
+
+    def _handle_observability(self) -> None:
+        """Handle observability dashboard"""
+        try:
+            from src.evaluation import ObservabilityDashboard
+
+            print("\n📊 Observability Dashboard")
+            print("="*80)
+
+            # Check if we have a dashboard instance
+            if not hasattr(self.rag, 'observability_dashboard'):
+                print("⚠️  Observability not yet initialized.")
+                print("💡 Processing some queries first will populate metrics.")
+                return
+
+            dashboard = self.rag.observability_dashboard
+            metrics = dashboard.get_system_metrics()
+
+            if metrics.total_queries == 0:
+                print("⚠️  No queries processed yet.")
+                return
+
+            print(f"\n📈 System Metrics:")
+            print(f"   Total Queries: {metrics.total_queries}")
+            print(f"   Avg Response Time: {metrics.avg_total_time_ms:.0f}ms")
+            print(f"   Avg Retrieval Time: {metrics.avg_retrieval_time_ms:.0f}ms")
+            print(f"   Avg Generation Time: {metrics.avg_generation_time_ms:.0f}ms")
+            print(f"   Avg Confidence: {metrics.avg_confidence_score:.2%}")
+            print(f"   Avg Docs per Query: {metrics.avg_docs_per_query:.1f}")
+
+            # Export report
+            print(f"\n📄 Exporting HTML report...")
+            report_path = dashboard.export_report("./logs/dashboard_report.html")
+            print(f"✅ Report saved: {report_path}")
+            print(f"💡 Open in browser: file://{report_path}")
+            print("="*80 + "\n")
+
+        except Exception as e:
+            print(f"❌ Error: {e}")
+            logger.error(f"Observability error: {e}")
+
+    def _handle_experiments(self) -> None:
+        """Handle optimization experiments"""
+        try:
+            from src.evaluation import ExperimentRunner
+
+            print("\n🧪 Optimization Experiments")
+            print("="*80)
+            print("This will test different configurations to find optimal settings.")
+            print("⚠️  Warning: This may take several minutes!\n")
+
+            confirm = input("Continue? (yes/no): ").strip().lower()
+            if confirm not in ['yes', 'y']:
+                print("Cancelled.")
+                return
+
+            # Get test queries
+            print("\nEnter test queries (one per line, empty line to finish):")
+            test_queries = []
+            while True:
+                query = input(f"  Query {len(test_queries)+1}: ").strip()
+                if not query:
+                    break
+                test_queries.append(query)
+
+            if len(test_queries) < 3:
+                print("⚠️  Need at least 3 queries for meaningful results.")
+                return
+
+            print(f"\n⚡ Running experiments with {len(test_queries)} test queries...")
+            runner = ExperimentRunner(self.rag, output_dir="./experiments")
+
+            # Run chunk size experiment
+            print("\n1️⃣  Testing chunk sizes [256, 512, 1024]...")
+            chunk_results = runner.chunk_size_exp.run_experiment(
+                test_queries=test_queries,
+                chunk_sizes=[256, 512, 1024],
+                overlap_ratio=0.1
+            )
+
+            print("\n   Results:")
+            for result in chunk_results:
+                print(f"     Chunk {result.config['chunk_size']}: "
+                      f"RAG Score {result.avg_rag_score:.3f}, "
+                      f"Time {result.avg_total_time_ms:.0f}ms")
+
+            # Run top-k experiment
+            print("\n2️⃣  Testing top-k values [3, 5, 10]...")
+            topk_results = runner.top_k_exp.run_experiment(
+                test_queries=test_queries,
+                k_values=[3, 5, 10]
+            )
+
+            print("\n   Results:")
+            for result in topk_results:
+                print(f"     Top-K {result.config['top_k']}: "
+                      f"RAG Score {result.avg_rag_score:.3f}, "
+                      f"Time {result.avg_total_time_ms:.0f}ms")
+
+            # Generate report
+            print("\n📄 Generating HTML report...")
+            report_path = runner.generate_report(
+                chunk_results + topk_results,
+                "optimization_experiments.html"
+            )
+            print(f"✅ Report saved: {report_path}")
+            print(f"💡 Open in browser: file://{report_path}")
+            print("="*80 + "\n")
+
+        except Exception as e:
+            print(f"❌ Error: {e}")
+            logger.error(f"Experiments error: {e}")
+
     def _handle_save(self, command: str) -> None:
         """Handle save command"""
         parts = command.split(maxsplit=1)
         filename = parts[1] if len(parts) > 1 else "conversation"
 
         try:
-            import json
-            data = {
-                "conversations": self.rag.conversation_history,
-                "timestamp": datetime.now().isoformat()
-            }
-            with open(f"{filename}.json", 'w') as f:
-                json.dump(data, f, indent=2)
+            self.rag.save_conversation(filename)
             print(f"✅ Saved to {filename}.json")
         except Exception as e:
             print(f"❌ Error saving: {e}")
@@ -364,11 +613,14 @@ class InteractiveRAG:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   expand <query>                    Query expansion (4 variations)
   multihop <query>                  Multi-hop reasoning (3 steps)
+  agent <query>                     Agentic RAG with autonomous strategy
+  async <q1> | <q2> | <q3>          Batch queries in parallel
 
 ⚡ SETTINGS & TOGGLES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   streaming                         Toggle streaming responses
   fact-check                        Toggle fact-checking
+  guardrail                         Toggle guardrails (input/output safety)
   self-query                        Toggle self-query decomposition
   domain                            Toggle domain guard
   hallucination                     Toggle hallucination detection & mitigation
@@ -376,6 +628,8 @@ class InteractiveRAG:
   facts                             Show fact-check results
   hallucination-report              Show last hallucination analysis report
   domain-stats                      Show domain guard profile & topics
+  observability                     Show performance metrics & export report
+  experiments                       Run optimization experiments
 
 📚 GENERAL
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -384,13 +638,13 @@ class InteractiveRAG:
 
 💡 EXAMPLES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  > load wikipedia "Albert Einstein"
-  > domain                                  # enable domain guard
-  > hallucination                           # enable hallucination detection
-  > self-query                              # enable self-query decomposition
-  > query "What were Einstein's achievements and how did they impact physics and society?"
-  > hallucination-report                    # view detailed grounding analysis
-  > domain-stats                            # view domain topics
+  > load https://en.wikipedia.org/wiki/Machine_learning
+  > guardrail                               # enable safety checks
+  > query "What is machine learning?"
+  > agent "Compare supervised and unsupervised learning"
+  > async What is AI? | What is ML? | What is DL?
+  > observability                           # view performance metrics
+  > experiments                             # optimize settings
         """)
 
     def _show_cache_stats(self) -> None:
@@ -498,10 +752,6 @@ class InteractiveRAG:
         print(tabulate(table_data, headers=["Status", "Fact", "Confidence"], tablefmt="grid"))
         print("="*80 + "\n")
 
-
-        print(tabulate(table_data, headers=["Status", "Fact", "Confidence"], tablefmt="grid"))
-        print("="*80 + "\n")
-
     def _show_hallucination_report(self) -> None:
         """Show the last hallucination detection report."""
         report = getattr(self.rag, 'last_hallucination_report', None)
@@ -571,6 +821,17 @@ class InteractiveRAG:
 
     def _display_response(self, response) -> None:
         """Display RAG response with formatting"""
+        # Guardrails warning (if any)
+        if hasattr(self.rag, 'last_guardrail_results') and self.rag.last_guardrail_results:
+            high_risk = [r for r in self.rag.last_guardrail_results if r.risk_level == "HIGH"]
+            medium_risk = [r for r in self.rag.last_guardrail_results if r.risk_level == "MEDIUM"]
+            if high_risk or medium_risk:
+                print(f"\n🛡️  GUARDRAIL WARNING")
+                print("-"*80)
+                for result in high_risk + medium_risk:
+                    print(f"  [{result.risk_level}] {result.message}")
+                print("-"*80)
+
         # Domain warning — shown first, before the answer
         if response.domain_check and not response.domain_check.is_in_domain:
             print(f"\n⚠️  DOMAIN WARNING")
