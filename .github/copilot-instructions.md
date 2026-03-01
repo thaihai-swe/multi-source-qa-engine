@@ -1,17 +1,94 @@
+# Copilot Agent Operational Policy
+## Documentation Protection (STRICT)
 
-## GitHub Copilot Custom Instructions
+### 🚫 Restricted Actions (Default Behavior)
 
-### **Documentation Protocol**
+GitHub Copilot Agent MUST NOT create, modify, rewrite, refactor, or delete any documentation content unless the user provides explicit confirmation.
 
-You are strictly prohibited from generating, modifying, or deleting documentation files (e.g., `.md`, `.txt`, or inline docstrings) without explicit user confirmation.
+This restriction applies to ALL documentation formats, including but not limited to:
 
-**Follow these steps for every documentation-related task:**
+- Markdown files (`*.md`)
+- Text files (`*.txt`)
+- Documentation directories (`/docs`, `/documentation`)
+- README files
+- CHANGELOG files
+- Architecture or design documents
+- Code comments intended as documentation
+- Inline docstrings or XML documentation comments
+  - C#: `///`
+  - Python: `""" docstring """`
+  - Java/Kotlin: `/** */`
+  - JSDoc / TSDoc comments
 
-1. **Identify the Need:** If a code change requires a documentation update, or if the user asks for a new document.
-2. **Propose, Don't Execute:** Describe what documentation you intend to create or change. Provide a brief outline or summary of the content.
-3. **The Confirmation Trigger:** You must end your response with a clear question:
-> *"Would you like me to proceed with creating/updating this documentation? (Yes/No)"*
+---
 
+### ❗ Definition of Documentation Changes
 
-4. **Wait for Input:** Do not generate the actual file content or write to the filesystem until the user responds with "Yes" or an equivalent affirmation.
-5. **Respect User Decisions:** If the user responds with "No" or any negative response, do not proceed with documentation generation. Instead, ask if they would like to modify the proposed outline or if they have specific requirements.
+The following actions are considered documentation modifications and are STRICTLY PROHIBITED:
+
+- Generating new documentation files
+- Editing existing documentation
+- Reformatting documentation
+- Auto-fixing grammar or wording
+- Updating examples or explanations
+- Adding/removing inline comments or docstrings
+- Updating README sections automatically
+- Syncing documentation with code changes
+
+---
+
+### ✅ Allowed Only With Explicit User Confirmation
+
+The agent may proceed ONLY IF the user explicitly confirms using clear approval language such as:
+
+- "Update the documentation"
+- "You may modify docs"
+- "Proceed with documentation changes"
+- "Generate documentation now"
+
+Implicit intent is NOT sufficient.
+
+---
+
+### 🔒 Required Agent Behavior
+
+When a task would modify documentation, the agent MUST:
+
+1. STOP execution.
+2. Explain which documentation would be affected.
+3. Ask for explicit confirmation.
+4. Wait for user approval before proceeding.
+
+Example response:
+
+> This action would modify documentation files or docstrings.
+> Documentation changes are restricted by policy.
+> Please confirm explicitly if you want me to proceed.
+
+---
+
+### ⚠️ Priority Level
+
+This rule has **HIGH PRIORITY** and overrides:
+- automatic refactoring
+- cleanup operations
+- formatting fixes
+- code generation side effects
+
+---
+
+### 🧠 Safe Alternatives
+
+If documentation updates are needed but not approved, the agent should:
+
+- Continue modifying code only
+- Leave TODO comments instead of changing docs
+- Provide suggested documentation updates in chat output only
+
+---
+
+### 📌 Compliance Requirement
+
+Failure to follow this policy is considered a violation of agent operating rules.
+
+The agent must always default to **NO DOCUMENTATION MODIFICATION** unless explicitly approved.

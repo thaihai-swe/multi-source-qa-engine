@@ -61,12 +61,22 @@ User: load wikipedia "Machine Learning"
      Raw text content
              |
              v
-     AdaptiveChunker.chunk(content)
-       Detect content type:
-         Academic text    --> 800 tokens, 200-token overlap
-         Structured data  --> 300 tokens,  50-token overlap
-         General prose    --> 500 tokens, 100-token overlap
+     SmartChunkSizer.recommend_chunk_sizes(content)  [if enabled]
+       Analyze: content type, domain, complexity, structure
+       Recommend: child/parent sizes tailored to document
+       Result: domain-specific sizing recommendations
+             |
+             v
+     AdaptiveChunker.chunk_with_hierarchy(content)
+       If smart sizing enabled:
+         Use SmartChunkSizer recommendations
+       Else:
+         Use preset sizes by content type:
+           Academic text    --> 256 tokens (child), 1024 (parent)
+           Structured data  --> 256 tokens (child), 1024 (parent)
+           General prose    --> 256 tokens (child), 1024 (parent)
        Split at sentence boundaries
+       Create parent chunks (larger, overlap) + child chunks (small, precise)
              |
       +------+------+
       v             v
@@ -79,7 +89,8 @@ User: load wikipedia "Machine Learning"
      State update:
        collections[name] = chroma_collection
        loaded_sources[source] = source_type
-       domain_guard.update_profile(chunks)  <-- builds domain
+       chunker.last_sizing_info = sizing_analysis
+       domain_guard.update_profile(chunks)  <-- builds domain profile
 ```
 
 ---

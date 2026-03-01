@@ -70,6 +70,7 @@ OPEN_AI_MODEL=meta-llama-3.1-8b-instruct
 - Adaptive chunking — content-aware sizing: 256–1024 tokens per chunk
 - RAGAS evaluation — context relevance, answer relevance, faithfulness
 - Conversation memory — persistent history with context-aware follow-ups
+- **Parent-Child Chunk Retrieval** — Small chunks (256 tokens) for precision, large parents (1024 tokens) for context
 
 **Advanced reasoning (Phase 2)**
 - Query expansion — 4 variations to broaden retrieval coverage
@@ -91,6 +92,11 @@ OPEN_AI_MODEL=meta-llama-3.1-8b-instruct
 - Document reranking — two-stage retrieval: bi-encoder → cross-encoder reranking + MMR diversity
 - Passage highlighting — sentence-level extraction with relevance scoring for transparency
 - **HyDE (Hypothetical Document Embeddings)** — generates hypothetical answers to improve retrieval quality
+- **Smart Chunk Sizing** — auto-detects optimal chunk sizes per document (content type, domain, complexity, structure)
+  - Analyzes document characteristics to determine ideal child/parent chunk ratio
+  - Maintains 3-4x parent-child size hierarchy automatically
+  - 7 document type presets (Wikipedia, academic, technical, blog, code, fiction, news)
+  - Bounds enforcement: child 128-512 tokens, parent 512-2048 tokens
 
 **Autonomous & Performance (Phase 6)**
 - **Agentic RAG** — ReAct pattern with 10 available actions, autonomous strategy selection
@@ -210,32 +216,41 @@ https://en.wikipedia.org/wiki/Machine_learning
 
 ### Advanced
 
-| Command                      | Description                                           |
-| ---------------------------- | ----------------------------------------------------- |
-| `expand <query>`             | Query with 4-variation expansion                      |
-| `multihop <query>`           | 3-step decomposition and synthesis                    |
-| `agent <query>`              | Agentic RAG with autonomous strategy selection        |
-| `async <q1> \| <q2> \| <q3>` | Batch queries in parallel (2-3x faster)               |
-| `observability`              | Show performance metrics and export HTML report       |
-| `experiments`                | Run optimization experiments (chunk s                 |
-| ----------------------       | ----------------------------------------------------- |
-| `streaming`                  | Toggle streaming output (default: off)                |
-| `fact-check`                 | Toggle fact verification (default: off)               |
-| `guardrail`                  | Toggle guardrails & safety (default: off) — **NEW!**  |
-| `self-query`                 | Toggle self-query decomposition (default: off)        |
-| `domain`                     | Toggle domain guard (default: off)                    |
-| `hallucination`              | Toggle hallucination detection (default: off)         |
-| `rerank`                     | Toggle document reranking (default: off)              |
-| `highlight`                  | Toggle passage highlighting (default: off)            |
-| `cache`                      | Show embedding cache statistics                       |
-| `facts`                      | Show last fact-check results                          |
-| `hallucination-report`       | Show last hallucination analysis report               |
-| `domain-stats`               | Show domain profile and similarity threshold          |
-| `passages`                   | Show highlighted passages from last query             |
-| `facts`                      | Show last fact-check results                          |
-| `hallucination-report`       | Show last hallucination analysis report               |
-| `domain-stats`               | Show domain profile and similarity threshold          |
-| `passages`                   | Show highlighted passages from last query             |
+| Command                      | Description                                      |
+| ---------------------------- | ------------------------------------------------ |
+| `expand <query>`             | Query with 4-variation expansion                 |
+| `multihop <query>`           | 3-step decomposition and synthesis               |
+| `agent <query>`              | Agentic RAG with autonomous strategy selection   |
+| `async <q1> \| <q2> \| <q3>` | Batch queries in parallel (2-3x faster)          |
+| `observability`              | Show performance metrics and export HTML report  |
+| `experiments`                | Run optimization experiments (chunk size, top-k) |
+
+### Settings & Toggles
+
+| Command          | Description                                          |
+| ---------------- | ---------------------------------------------------- |
+| `streaming`      | Toggle streaming output (default: off)               |
+| `fact-check`     | Toggle fact verification (default: off)              |
+| `guardrail`      | Toggle guardrails & safety (default: off)            |
+| `self-query`     | Toggle self-query decomposition (default: off)       |
+| `domain`         | Toggle domain guard (default: off)                   |
+| `hallucination`  | Toggle hallucination detection (default: off)        |
+| `rerank`         | Toggle document reranking (default: off)             |
+| `highlight`      | Toggle passage highlighting (default: off)           |
+| `parent-child`   | Toggle parent-child chunk retrieval                  |
+| `smart-chunking` | Toggle smart chunk sizing (auto-detect per document) |
+
+### Information & Analysis
+
+| Command                   | Description                                  |
+| ------------------------- | -------------------------------------------- |
+| `cache`                   | Show embedding cache statistics              |
+| `facts`                   | Show last fact-check results                 |
+| `hallucination-report`    | Show last hallucination analysis report      |
+| `domain-stats`            | Show domain profile and similarity threshold |
+| `passages`                | Show highlighted passages from last query    |
+| `analyze-chunks <source>` | Analyze optimal chunk sizes for a source     |
+
 
 ### General
 
@@ -259,9 +274,15 @@ All settings load from `.env` at startup.
 
 ---
 
-## Recent Updates (2026-02-28)
+## Recent Updates (2026-03-01)
 
 ### New Features
+- ✨ **Smart Chunk Sizing**: Auto-detects optimal chunk sizes by analyzing document characteristics
+  - Detects content type (academic/structured/general) and domain (7 types)
+  - Uses complexity & structure scoring with intelligent multipliers
+  - Maintains 3-4x parent-child ratio automatically
+  - CLI command: `analyze-chunks <source>` to preview recommendations
+- ✨ **Parent-Child Chunk Retrieval**: Small precise chunks + large context chunks for hierarchical retrieval
 - ✨ **Agentic RAG**: Autonomous agent with ReAct pattern and 10 available actions
 - ✨ **Async Pipeline**: Parallel query processing with batch operations
 - ✨ **Guardrails**: Comprehensive safety layer (prompt injection, PII, toxicity, rate limiting)

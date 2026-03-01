@@ -78,8 +78,10 @@ class LLMAnswerGenerator(AnswerGenerator):
 
     @staticmethod
     def _build_context(docs: List[RetrievedDocument]) -> str:
-        """Build context string from retrieved documents"""
+        """Build context string from retrieved documents, preferring parent chunks when available"""
         context_parts = []
         for i, doc in enumerate(docs, 1):
-            context_parts.append(f"Source {i} ({doc.source}):\n{doc.content}\n")
+            # Use parent content if available (for parent-child retrieval), otherwise use regular content
+            content = doc.parent_content if doc.parent_content else doc.content
+            context_parts.append(f"Source {i} ({doc.source}):\n{content}\n")
         return "\n".join(context_parts)

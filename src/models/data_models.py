@@ -12,6 +12,11 @@ class RetrievedDocument:
     source_type: str  # 'wikipedia', 'url', 'file', 'pdf'
     index: int
     distance: Optional[float] = None
+    # Parent-child relationship (new feature)
+    parent_content: Optional[str] = None  # Full parent chunk for context
+    parent_id: Optional[str] = None       # ID of parent chunk
+    is_parent: bool = False               # Whether this is a parent chunk
+    hierarchy_level: int = 0              # 0=child, 1=parent, 2=grandparent
 
     @property
     def relevance_score(self) -> float:

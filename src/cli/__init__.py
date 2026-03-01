@@ -47,8 +47,11 @@ class InteractiveRAG:
         print("  hallucination                  - Toggle hallucination detection & mitigation")
         print("  rerank                         - Toggle cross-encoder reranking & MMR diversity")
         print("  highlight                      - Toggle passage highlighting")
+        print("  parent-child                   - Toggle parent-child chunk retrieval")
+        print("  smart-chunking                 - Toggle smart chunk sizing (auto-detect)")
         print("  guardrail                      - Toggle input/output guardrails & safety")
         print("  cache                          - Show cache statistics")
+        print("  analyze-chunks <source>        - Analyze optimal chunk sizes for source")
         print("  facts                          - Show fact-check results")
         print("  passages                       - Show highlighted passages from last query")
         print("  hallucination-report           - Show last hallucination report")
@@ -204,6 +207,49 @@ class InteractiveRAG:
             print(f"📍 Passage highlighting: {status}")
             return True
 
+        if cmd == 'parent-child':
+            self.rag.config.search.enable_parent_child_retrieval = (
+                not self.rag.config.search.enable_parent_child_retrieval
+            )
+            # Need to reinitialize chunker with new setting
+            from src.retrieval.chunker import AdaptiveChunker
+            self.rag.chunker = AdaptiveChunker(
+                enable_hierarchy=self.rag.config.search.enable_parent_child_retrieval,
+                child_chunk_size=self.rag.config.search.child_chunk_size,
+                parent_chunk_size=self.rag.config.search.parent_chunk_size,
+                enable_smart_sizing=self.rag.config.search.enable_smart_chunking
+            )
+            status = "✅ ENABLED" if self.rag.config.search.enable_parent_child_retrieval else "❌ DISABLED"
+            print(f"👨‍👧 Parent-Child Chunking: {status}")
+            if self.rag.config.search.enable_parent_child_retrieval:
+                print(f"   Child chunk size: {self.rag.config.search.child_chunk_size} tokens")
+                print(f"   Parent chunk size: {self.rag.config.search.parent_chunk_size} tokens")
+                print("   📝 Note: Reload data sources to apply parent-child hierarchy")
+            return True
+
+        if cmd == 'smart-chunking':
+            self.rag.config.search.enable_smart_chunking = (
+                not self.rag.config.search.enable_smart_chunking
+            )
+            # Need to reinitialize chunker with new setting
+            from src.retrieval.chunker import AdaptiveChunker
+            self.rag.chunker = AdaptiveChunker(
+                enable_hierarchy=self.rag.config.search.enable_parent_child_retrieval,
+                child_chunk_size=self.rag.config.search.child_chunk_size,
+                parent_chunk_size=self.rag.config.search.parent_chunk_size,
+                enable_smart_sizing=self.rag.config.search.enable_smart_chunking
+            )
+            status = "✅ ENABLED" if self.rag.config.search.enable_smart_chunking else "❌ DISABLED"
+            print(f"🧠 Smart Chunk Sizing: {status}")
+            if self.rag.config.search.enable_smart_chunking:
+                print("   Auto-detects optimal chunk sizes per document:")
+                print("   • Analyzes content type (academic/structured/general)")
+                print("   • Detects domain (Wikipedia/academic/technical/blog/code/fiction/news)")
+                print("   • Scores complexity & structure")
+                print("   • Recommends sizes maintaining 3-4x parent-child ratio")
+                print("   📝 Note: Reload data sources to apply smart sizing")
+            return True
+
         if cmd == 'guardrail':
             self.rag.config.evaluation.enable_guardrails = (
                 not self.rag.config.evaluation.enable_guardrails
@@ -227,6 +273,10 @@ class InteractiveRAG:
 
         if cmd == 'domain-stats':
             self._show_domain_stats()
+            return True
+
+        if cmd == 'analyze-chunks':
+            self._handle_analyze_chunks(user_input)
             return True
 
         if cmd == 'query':
@@ -591,6 +641,65 @@ class InteractiveRAG:
             print(f"✅ Saved to {filename}.json")
         except Exception as e:
             print(f"❌ Error saving: {e}")
+
+    def _handle_analyze_chunks(self, command: str) -> None:
+        """Handle analyze-chunks command to show optimal chunk sizing"""
+        import shlex
+
+        # Parse command with proper quote handling
+        try:
+            parts = shlex.split(command)
+        except ValueError:
+            parts = command.split(maxsplit=1)
+
+        if len(parts) < 2:
+            print("❌ Usage: analyze-chunks <source>")
+            print("   Examples:")
+            print("     analyze-chunks https://en.wikipedia.org/wiki/Machine_Learning")
+            print("     analyze-chunks document.txt")
+            print("     analyze-chunks https://example.com/article")
+            return
+
+        source = parts[1]
+
+        try:
+            print(f"\n📊 Analyzing optimal chunk sizes for: {source}")
+            print("-" * 80)
+
+            # Use RAGSystem's analyze_chunk_sizes method
+            recommendation = self.rag.analyze_chunk_sizes(source)
+
+            # Display analysis results
+            if recommendation:
+                print(f"\n📈 Document Analysis:")
+                print(f"   • Token estimate: {recommendation.get('token_estimate', 'N/A'):,} tokens")
+                print(f"   • Content type: {recommendation.get('content_type', 'unknown')}")
+                print(f"   • Detected domain: {recommendation.get('detected_domain', 'unknown')}")
+                print(f"   • Complexity score: {recommendation.get('complexity_score', 0):.1%} (based on sentence length & special chars)")
+                print(f"   • Structure score: {recommendation.get('structure_score', 0):.1%} (headers, lists, organization)")
+
+                print(f"\n🎯 Recommended Chunk Sizes:")
+                print(f"   • Child chunk: {recommendation.get('recommended_child_size', 'N/A')} tokens")
+                print(f"   • Parent chunk: {recommendation.get('recommended_parent_size', 'N/A')} tokens")
+                ratio = recommendation.get('recommended_parent_size', 1) / max(recommendation.get('recommended_child_size', 1), 1)
+                print(f"   • Ratio: {ratio:.1f}x (parent/child)")
+
+                # Show reasoning
+                if recommendation.get('reasoning'):
+                    print(f"\n💡 Reasoning:")
+                    for reason in recommendation.get('reasoning', []):
+                        print(f"   • {reason}")
+
+                print("\n💭 Next steps:")
+                print("   1. Run 'smart-chunking' to enable auto-sizing")
+                print("   2. Run 'load <source>' to reload with recommended sizes")
+                print("   3. Run queries to test retrieval quality")
+
+            print("-" * 80 + "\n")
+
+        except Exception as e:
+            print(f"❌ Error analyzing chunks: {e}")
+            logger.error(f"Chunk analysis error: {e}")
 
     def _show_help(self) -> None:
         """Show help information"""

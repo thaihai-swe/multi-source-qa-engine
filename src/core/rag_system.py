@@ -1,5 +1,5 @@
 """Core RAG orchestrator - coordinates all components"""
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
 from datetime import datetime
 import chromadb
 from chromadb.utils import embedding_functions
@@ -37,7 +37,12 @@ class RAGSystem:
             semantic_weight=self.config.search.semantic_weight,
             keyword_weight=self.config.search.keyword_weight
         )
-        self.chunker = AdaptiveChunker()
+        self.chunker = AdaptiveChunker(
+            enable_hierarchy=self.config.search.enable_parent_child_retrieval,
+            child_chunk_size=self.config.search.child_chunk_size,
+            parent_chunk_size=self.config.search.parent_chunk_size,
+            enable_smart_sizing=self.config.search.enable_smart_chunking
+        )
         self.loader = MultiSourceDataLoader()
         self.generator = LLMAnswerGenerator()
         self.evaluator = RAGASEvaluator()
@@ -90,6 +95,8 @@ class RAGSystem:
         self.last_hallucination_report = None
         self.last_domain_check = None
         self.last_highlighted_passages = []
+        # Parent-child chunk tracking
+        self.chunk_hierarchies = {}  # collection_name -> ChunkHierarchy
 
         logger.info("✅ Enhanced RAG System initialized")
 
@@ -162,6 +169,12 @@ class RAGSystem:
 
             logger.info(f"✅ Split into {len(chunks)} chunks")
 
+            # Get hierarchy if parent-child retrieval is enabled
+            hierarchy = None
+            if self.config.search.enable_parent_child_retrieval:
+                hierarchy = self.chunker.get_hierarchy()
+                self.chunk_hierarchies[collection_name] = hierarchy
+
             # Create ChromaDB collection
             collection = self.db.get_or_create_collection(
                 name=collection_name,
@@ -170,15 +183,25 @@ class RAGSystem:
 
             # Add to collection
             for i, chunk in enumerate(chunks):
+                chunk_id = f"{collection_name}_{i}"
+                metadata = {
+                    "source": source,
+                    "source_type": source_type,
+                    "index": i,
+                    "timestamp": datetime.now().isoformat()
+                }
+
+                # Add parent reference if hierarchy exists
+                if hierarchy:
+                    parent_content = hierarchy.get_parent_content(chunk_id)
+                    if parent_content:
+                        metadata["has_parent"] = True
+                        metadata["parent_size"] = len(parent_content)
+
                 collection.add(
                     documents=[chunk],
-                    ids=[f"{collection_name}_{i}"],
-                    metadatas=[{
-                        "source": source,
-                        "source_type": source_type,
-                        "index": i,
-                        "timestamp": datetime.now().isoformat()
-                    }]
+                    ids=[chunk_id],
+                    metadatas=[metadata]
                 )
 
             # Build BM25 index for hybrid search
@@ -193,9 +216,14 @@ class RAGSystem:
             self.current_collection_name = collection_name  # Store name for easy lookup
             self.loaded_sources[source] = source_type
 
+            # Print stats
             print(f"✅ Successfully loaded {len(chunks)} chunks from {source}")
             print(f"   Source Type: {source_type.upper()}")
-            print(f"   Collection: {collection_name}\n")
+            print(f"   Collection: {collection_name}")
+            if hierarchy:
+                num_parents = len(hierarchy.parent_chunks)
+                print(f"   Parent-Child: {len(chunks)} children from {num_parents} parents")
+            print()
 
             logger.info(f"✅ Data loaded into collection: {collection_name}")
 
@@ -412,6 +440,35 @@ class RAGSystem:
         max_docs = self.config.search.max_results * 2
         return final_answer, unique_docs[:max_docs]
 
+    def _enrich_with_parents(self, documents: List[RetrievedDocument]) -> List[RetrievedDocument]:
+        """Enrich retrieved documents with parent chunk content if available"""
+        if not self.config.search.enable_parent_child_retrieval:
+            return documents
+
+        if not self.current_collection_name:
+            return documents
+
+        hierarchy = self.chunk_hierarchies.get(self.current_collection_name)
+        if not hierarchy:
+            return documents
+
+        # Enrich each document with parent content
+        enriched_docs = []
+        for doc in documents:
+            # Try to find the chunk ID to get parent
+            chunk_id = f"{self.current_collection_name}_{doc.index}"
+            parent_content = hierarchy.get_parent_content(chunk_id)
+
+            if parent_content:
+                doc.parent_content = parent_content
+                doc.parent_id = hierarchy.child_parents.get(chunk_id)
+                doc.hierarchy_level = 0  # This is a child
+
+            enriched_docs.append(doc)
+
+        logger.info(f"✅ Enriched {len([d for d in enriched_docs if d.parent_content])} documents with parent chunks")
+        return enriched_docs
+
     def _retrieve_documents(self, query: str) -> List[RetrievedDocument]:
         """Retrieve relevant documents using hybrid search"""
         if not self.current_collection:
@@ -495,6 +552,9 @@ class RAGSystem:
                 documents = self.reranker.rerank(query, documents)
                 logger.info(f"✅ Reranking applied: {len(documents)} documents reordered")
 
+            # 6. Enrich with parent chunks (if enabled)
+            documents = self._enrich_with_parents(documents)
+
             return documents
 
         except Exception as e:
@@ -517,6 +577,9 @@ class RAGSystem:
                         distance=results['distances'][0][i] if results['distances'] else None
                     )
                     documents.append(retrieved_doc)
+
+                # Enrich with parent chunks (if enabled)
+                documents = self._enrich_with_parents(documents)
 
                 logger.info(f"✅ Retrieved {len(documents)} documents (fallback)")
                 return documents
@@ -551,6 +614,31 @@ class RAGSystem:
 
         all_results.sort(key=lambda x: x.distance if x.distance else float('inf'))
         return all_results[:n_results]
+
+    def analyze_chunk_sizes(self, source: str) -> Optional[Dict]:
+        """Analyze optimal chunk sizes for a data source"""
+        try:
+            # Load content
+            content = self.loader.load(source)
+            if not content:
+                logger.warning(f"Could not load {source}")
+                return None
+
+            # Use smart sizer if available
+            if self.chunker.smart_sizer:
+                recommendation = self.chunker.smart_sizer.get_detailed_recommendation(content)
+                return recommendation
+            else:
+                logger.warning("Smart chunking not enabled")
+                return None
+
+        except Exception as e:
+            logger.error(f"Error analyzing chunk sizes: {e}")
+            return None
+
+    def get_last_chunk_sizing_info(self) -> Optional[Dict]:
+        """Get sizing info from last data load"""
+        return self.chunker.get_sizing_info()
 
     def save_conversation(self, filename: str = "conversation") -> None:
         """Save conversation history"""

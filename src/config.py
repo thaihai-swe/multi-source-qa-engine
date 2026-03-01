@@ -35,6 +35,12 @@ class SearchConfig:
     # Passage Highlighting
     enable_passage_highlighting: bool = False
     max_passages_per_doc: int = 3
+    # Parent-Child Chunk Retrieval
+    enable_parent_child_retrieval: bool = False
+    child_chunk_size: int = 256
+    parent_chunk_size: int = 1024
+    # Smart Chunk Sizing
+    enable_smart_chunking: bool = False  # Auto-detect optimal chunk sizes
 
 
 @dataclass
